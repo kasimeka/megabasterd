@@ -1165,7 +1165,7 @@ public class Upload implements Transference, Runnable, SecureSingleThreadNotifia
             }
         });
 
-        if (_status_error != null && !_canceled && _auto_retry_on_error) {
+        if (isRetryPending()) {
             THREAD_POOL.execute(() -> {
                 for (int i = 3; !_closed && i > 0; i--) {
                     final int j = i;

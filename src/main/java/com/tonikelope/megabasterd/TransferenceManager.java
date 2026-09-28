@@ -107,6 +107,18 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
         // Default: nothing. Subclasses override.
     }
 
+    /** Fire finish command if an OK finish is queued; never throws. (#774) */
+    public void maybeRunFinishCommand() {
+        try {
+            if (isOKFinishedInQueue()) {
+                onAllTransferencesFinished();
+            }
+        } catch (Throwable t) {
+            LOG.log(Level.WARNING, "auto-close {0} finish command threw: {1}",
+                    new Object[]{getClass().getSimpleName(), t.getMessage()});
+        }
+    }
+
     public TransferenceManager(MainPanel main_panel, int max_running_trans, javax.swing.JLabel status, javax.swing.JPanel scroll_panel, javax.swing.JButton close_all_button, javax.swing.JButton pause_all_button, javax.swing.MenuElement clean_all_menu) {
         _notified = false;
         _paused_all = false;
@@ -151,10 +163,6 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
 
     public void setPaused_all(boolean _paused_all) {
         this._paused_all = _paused_all;
-    }
-
-    public boolean no_transferences() {
-        return getTransference_preprocess_queue().isEmpty() && getTransference_provision_queue().isEmpty() && getTransference_waitstart_queue().isEmpty() && getTransference_running_list().isEmpty();
     }
 
     public boolean isIdleForAutoClose() {
@@ -776,7 +784,7 @@ abstract public class TransferenceManager implements Runnable, SecureSingleThrea
         // #774 -- post-finish user command. Fires once per "non-empty ->
         // empty with at least one OK finish" transition, independent of
         // window visibility and of the tray-notification latch above. Gated
-        // by _isOKFinishedInQueue() so a queue that ended only in errors
+        // by isOKFinishedInQueue() so a queue that ended only in errors
         // or cancellations does NOT trigger the command -- the user's
         // post-processing script almost always assumes "there are real
         // files to act on", so silent no-fire on all-error is safer than

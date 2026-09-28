@@ -1447,6 +1447,14 @@ public final class MainPanel {
         return exit;
     }
 
+    private void shutdownSqliteQuietly() {
+        try {
+            SqliteSingleton.getInstance().shutdown();
+        } catch (Exception ex) {
+            Logger.getLogger(MainPanel.class.getName()).log(Level.WARNING, "SqliteSingleton shutdown: {0}", ex.getMessage());
+        }
+    }
+
     public void byebyenow(boolean restart) {
 
         MiscTools.purgeFolderCache();
@@ -1463,11 +1471,7 @@ public final class MainPanel {
             // checkpointed before process exit / restart. Without this the
             // -wal / -shm sidecar files can linger and a restart can race
             // a still-held file handle (worst on Windows).
-            try {
-                SqliteSingleton.getInstance().shutdown();
-            } catch (Exception ex) {
-                Logger.getLogger(MainPanel.class.getName()).log(Level.WARNING, "SqliteSingleton shutdown: {0}", ex.getMessage());
-            }
+            shutdownSqliteQuietly();
 
             // Release the single-instance file lock so a restart can re-acquire
             // it immediately (Windows file-sharing semantics can otherwise delay
@@ -1501,11 +1505,7 @@ public final class MainPanel {
 
                 // Close the connection before deleting the file to avoid
                 // a Windows-shared-handle race.
-                try {
-                    SqliteSingleton.getInstance().shutdown();
-                } catch (Exception ex) {
-                    Logger.getLogger(MainPanel.class.getName()).log(Level.WARNING, "SqliteSingleton shutdown: {0}", ex.getMessage());
-                }
+                shutdownSqliteQuietly();
 
                 File db_file = new File(MainPanel.MEGABASTERD_HOME_DIR + "/.megabasterd" + MainPanel.VERSION + "/" + SqliteSingleton.SQLITE_FILE);
 
@@ -1518,11 +1518,7 @@ public final class MainPanel {
                     Logger.getLogger(MainPanel.class.getName()).log(Level.SEVERE, ex.getMessage());
                 }
 
-                try {
-                    SqliteSingleton.getInstance().shutdown();
-                } catch (Exception ex) {
-                    Logger.getLogger(MainPanel.class.getName()).log(Level.WARNING, "SqliteSingleton shutdown: {0}", ex.getMessage());
-                }
+                shutdownSqliteQuietly();
             }
 
             if (restart) {
@@ -1697,16 +1693,16 @@ public final class MainPanel {
             if (_download_manager == null || _upload_manager == null) {
                 return;
             }
-            boolean dlIdle = _download_manager.isIdleForAutoClose();
-            boolean ulIdle = _upload_manager.isIdleForAutoClose();
-            if (!dlIdle || !ulIdle) {
-                return;
+            boolean hasTerminal = false;
+            for (TransferenceManager m : new TransferenceManager[]{_download_manager, _upload_manager}) {
+                if (!m.isIdleForAutoClose()) {
+                    return;
+                }
+                if (m.hasPendingRetry()) {
+                    return;
+                }
+                hasTerminal |= m.hasTerminalFinish();
             }
-            boolean hasPending = _download_manager.hasPendingRetry() || _upload_manager.hasPendingRetry();
-            if (hasPending) {
-                return;
-            }
-            boolean hasTerminal = _download_manager.hasTerminalFinish() || _upload_manager.hasTerminalFinish();
             if (!hasTerminal) {
                 return;
             }
@@ -1717,20 +1713,8 @@ public final class MainPanel {
             setExit(true);
             THREAD_POOL.execute(() -> {
                 try {
-                    try {
-                        if (_download_manager.isOKFinishedInQueue()) {
-                            run_dl_finish_command();
-                        }
-                    } catch (Throwable t) {
-                        LOG.log(Level.WARNING, "auto-close dl finish command threw: {0}", t.getMessage());
-                    }
-                    try {
-                        if (_upload_manager.isOKFinishedInQueue()) {
-                            run_ul_finish_command();
-                        }
-                    } catch (Throwable t) {
-                        LOG.log(Level.WARNING, "auto-close ul finish command threw: {0}", t.getMessage());
-                    }
+                    _download_manager.maybeRunFinishCommand();
+                    _upload_manager.maybeRunFinishCommand();
                 } finally {
                     MiscTools.GUIRun(() -> {
                         try {

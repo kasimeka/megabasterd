@@ -582,13 +582,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
             return;
         }
 
-        // No active countdown. Only auto-restart if this is the kind of
-        // failure that would have armed a countdown had it reached run()'s
-        // cleanup -- mirrors the predicate in stopThisSlot cleanup
-        // (Download.java:1098): _status_error != null && !_canceled &&
-        // _auto_retry_on_error. Closed / cancelled / successful downloads
-        // stay put.
-        if (_status_error != null && !_canceled && !_closed && _auto_retry_on_error) {
+        if (isRetryPending()) {
             LOG.log(Level.INFO, "{0} Downloader {1} no-countdown wakeup -- triggering restart now",
                     new Object[]{Thread.currentThread().getName(), getFile_name()});
             _tryRestart();
@@ -1158,7 +1152,8 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
             }
         }
 
-        if ((_status_error == null && !_canceled) || global_cancel || !_auto_retry_on_error) {
+        // Drop the DB row so resume can't resurrect it (#699).
+        if (!isRetryPending()) {
 
             try {
                 deleteDownload(_url);
@@ -1193,7 +1188,7 @@ public class Download implements Transference, Runnable, SecureSingleThreadNotif
             }
         });
 
-        if (_status_error != null && !_canceled && _auto_retry_on_error) {
+        if (isRetryPending()) {
             // MEGA's -17 (EOVERQUOTA) quota window is on the order of tens
             // of minutes. Retrying every 3 s does not help the quota clear
             // and just hammers the API; use a longer countdown so the user
